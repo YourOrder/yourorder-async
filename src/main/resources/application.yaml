@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: yourorder-async
+
+  datasource:
+    url: jdbc:postgresql://localhost:5433/yourorder_async
+    username: async_user
+    password: async_pass
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+    open-in-view: false
+
+  liquibase:
+    enabled: true
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: async-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "org.example.yourasync.kafka.event"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        max.block.ms: 5000
+
+server:
+  port: 8083
+
+kafka:
+  topics:
+    order-created: order.created
+    stock-reserved: stock.reserved
+    payment-completed: payment.completed
+    payment-failed: payment.failed
+    notification-sent: notification.sent
+    report-generated: report.generated
