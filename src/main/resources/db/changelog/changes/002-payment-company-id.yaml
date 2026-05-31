@@ -1,0 +1,17 @@
+databaseChangeLog:
+  - changeSet:
+      id: 002-payment-company-id
+      author: codex
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists:
+                tableName: payment
+                columnName: company_id
+      changes:
+        - addColumn:
+            tableName: payment
+            columns:
+              - column:
+                  name: company_id
+                  type: UUID

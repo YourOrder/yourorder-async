@@ -5,18 +5,15 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.yourorderasync.kafka.event.OrderCreatedEvent;
 import org.example.yourorderasync.kafka.event.StockReservedEvent;
-import org.example.yourorderasync.kafka.producer.AsyncEventProducer;
-import org.example.yourorderasync.notification.entity.NotificationEntity;
-import org.example.yourorderasync.notification.service.NotificationService;
 import org.example.yourorderasync.payment.entity.PaymentEntity;
 import org.example.yourorderasync.payment.service.PaymentService;
-import org.example.yourorderasync.payment.status.PaymentStatus;
-import org.example.yourorderasync.report.entity.SalesReportEntity;
-import org.example.yourorderasync.report.service.SalesReportService;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDate;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Component
@@ -24,10 +21,9 @@ import java.time.LocalDate;
 public class OrderEventConsumer {
 
     private final PaymentService paymentService;
-    private final NotificationService notificationService;
-    private final SalesReportService salesReportService;
-    private final AsyncEventProducer asyncEventProducer;
     private final ObjectMapper objectMapper;
+    private final Map<UUID, OrderCreatedEvent> pendingOrders = new ConcurrentHashMap<>();
+    private final Set<UUID> reservedOrders = ConcurrentHashMap.newKeySet();
 
     @KafkaListener(
             topics = "${kafka.topics.order-created}",
@@ -37,40 +33,8 @@ public class OrderEventConsumer {
         OrderCreatedEvent event = objectMapper.readValue(message, OrderCreatedEvent.class);
         log.info("Received order.created: orderId={}", event.orderId());
 
-        PaymentEntity payment = paymentService.processPayment(event);
-
-        if (payment.getStatus() == PaymentStatus.COMPLETED) {
-            asyncEventProducer.sendPaymentCompleted(event.orderId());
-
-            if (event.companyId() != null) {
-                SalesReportEntity report = salesReportService.updateReport(event, LocalDate.now());
-                asyncEventProducer.sendReportGenerated(report);
-            }
-
-            NotificationEntity notification = notificationService.sendNotification(
-                    event.userId(),
-                    event.orderId(),
-                    "Ваш заказ оплачен успешно. Сумма: " + event.totalAmount()
-            );
-            asyncEventProducer.sendNotificationSent(
-                    notification.getOrderId(),
-                    notification.getUserId(),
-                    notification.getMessage()
-            );
-        } else {
-            asyncEventProducer.sendPaymentFailed(event.orderId());
-
-            NotificationEntity notification = notificationService.sendNotification(
-                    event.userId(),
-                    event.orderId(),
-                    "Оплата заказа не прошла. Попробуйте снова."
-            );
-            asyncEventProducer.sendNotificationSent(
-                    notification.getOrderId(),
-                    notification.getUserId(),
-                    notification.getMessage()
-            );
-        }
+        pendingOrders.put(event.orderId(), event);
+        processPaymentWhenStockReserved(event.orderId());
     }
 
     @KafkaListener(
@@ -80,5 +44,21 @@ public class OrderEventConsumer {
     public void onStockReserved(String message) throws Exception {
         StockReservedEvent event = objectMapper.readValue(message, StockReservedEvent.class);
         log.info("Received stock.reserved: orderId={}", event.orderId());
+
+        reservedOrders.add(event.orderId());
+        processPaymentWhenStockReserved(event.orderId());
+    }
+
+    private void processPaymentWhenStockReserved(UUID orderId) {
+        OrderCreatedEvent event = pendingOrders.get(orderId);
+        if (event == null || !reservedOrders.contains(orderId)) {
+            return;
+        }
+
+        PaymentEntity payment = paymentService.createPendingPayment(event);
+        log.info("Payment is waiting for admin confirmation: paymentId={}, orderId={}", payment.getId(), event.orderId());
+
+        pendingOrders.remove(orderId);
+        reservedOrders.remove(orderId);
     }
 }

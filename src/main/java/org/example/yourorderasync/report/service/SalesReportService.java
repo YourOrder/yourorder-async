@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -39,6 +40,28 @@ public class SalesReportService {
         SalesReportEntity saved = salesReportRepository.save(report);
         log.info("SalesReport updated: companyId={}, revenue={}, orders={}",
                 event.companyId(), saved.getTotalRevenue(), saved.getOrderCount());
+        return saved;
+    }
+
+    public SalesReportEntity updateReport(UUID companyId, BigDecimal amount, LocalDate period) {
+        LocalDate periodStart = period.withDayOfMonth(1);
+        LocalDate periodEnd = period.withDayOfMonth(period.lengthOfMonth());
+
+        SalesReportEntity report = salesReportRepository
+                .findByCompanyIdAndPeriodStartAndPeriodEnd(companyId, periodStart, periodEnd)
+                .orElseGet(() -> SalesReportEntity.builder()
+                        .companyId(companyId)
+                        .periodStart(periodStart)
+                        .periodEnd(periodEnd)
+                        .build()
+                );
+
+        report.setTotalRevenue(report.getTotalRevenue().add(amount));
+        report.setOrderCount(report.getOrderCount() + 1);
+
+        SalesReportEntity saved = salesReportRepository.save(report);
+        log.info("SalesReport updated: companyId={}, revenue={}, orders={}",
+                companyId, saved.getTotalRevenue(), saved.getOrderCount());
         return saved;
     }
 

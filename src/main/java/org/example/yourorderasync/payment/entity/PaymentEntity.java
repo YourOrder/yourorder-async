@@ -27,6 +27,9 @@ public class PaymentEntity {
     @Column(name = "user_id", nullable = false)
     private UUID userId;
 
+    @Column(name = "company_id")
+    private UUID companyId;
+
     @Column(name = "amount", nullable = false, precision = 10, scale = 2)
     private BigDecimal amount;
 
